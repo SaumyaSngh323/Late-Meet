@@ -51,23 +51,56 @@ async function ensureOffscreen() {
     offscreenCreated = true;
   } catch (err) {
     console.error('[BG] Failed to create offscreen document:', err);
+    throw err;
   }
 }
 
+/**
+ * Wait for the offscreen document to be ready by pinging it.
+ * Retries up to 10 times with 200ms intervals.
+ */
+async function waitForOffscreen(maxRetries = 10) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'PING' });
+      if (response && response.ready) {
+        console.log('[BG] Offscreen document is ready');
+        return true;
+      }
+    } catch (e) {
+      // Not ready yet, will retry
+    }
+    await new Promise(r => setTimeout(r, 200));
+  }
+  console.error('[BG] Offscreen document did not become ready in time');
+  return false;
+}
+
 // ——— Audio Capture ———
-async function startAudioCapture(tabId) {
-  await ensureOffscreen();
-  
+async function startAudioCapture(tabId, preCapturedStreamId = null) {
   try {
-    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+    console.log(`[BG] Starting audio capture flow for tab: ${tabId}`);
     
+    // If not pre-captured, grab it NOW (must be in a gesture context)
+    let streamId = preCapturedStreamId;
+    if (!streamId) {
+      streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+    }
+
+    await ensureOffscreen();
+    const ready = await waitForOffscreen();
+    if (!ready) {
+      console.error('[BG] Offscreen document not ready — audio capture aborted');
+      return;
+    }
+
     chrome.runtime.sendMessage({
       type: 'START_CAPTURE',
       streamId: streamId,
       tabId: tabId
     });
     
-    console.log('[BG] Audio capture started for tab:', tabId);
+    console.log('[BG] Audio capture successfully initialized in offscreen document');
   } catch (err) {
     console.error('[BG] Failed to start audio capture:', err);
   }
@@ -213,6 +246,7 @@ function getStateSnapshot() {
     participants: meetingState.participants,
     lateJoiners: meetingState.lateJoiners,
     timeline: meetingState.timeline,
+    transcript: meetingState.transcript,
     transcriptCount: meetingState.transcript.length,
     audioActive: meetingState.audioActive || false
   };
@@ -247,6 +281,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       meetingState.audioActive = false;
       
       broadcastState();
+
       sendResponse({ success: true });
       break;
     }
@@ -255,10 +290,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (meetingState.isActive) {
         chrome.tabs.query({ url: "https://meet.google.com/*" }, (tabs) => {
           if (tabs.length > 0) {
+            // Automated flow: startAudioCapture handles everything
             startAudioCapture(tabs[0].id);
             meetingState.audioActive = true;
             if (!processingInterval) {
-              processingInterval = setInterval(processTranscript, 30000);
+              processingInterval = setInterval(processTranscript, 15000);
             }
             broadcastState();
           }
@@ -268,30 +304,83 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
     }
 
+    case 'MANUAL_START_AUDIO': {
+      const { tabId, meetingId } = message;
+      
+      // 1. Mark active if not already
+      if (!meetingState.isActive) {
+        meetingState.isActive = true;
+        meetingState.meetingId = meetingId || null;
+        meetingState.startTime = Date.now();
+        meetingState.timeline.push({ event: 'Meeting started (manual)', timestamp: Date.now(), elapsed: 0 });
+      }
+
+      // 2. Capture Stream ID IMMEDIATELY to preserve user gesture
+      try {
+        console.log('[BG] Attempting to capture stream for tab:', tabId);
+        chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (streamId) => {
+          if (chrome.runtime.lastError) {
+            console.error('[BG] getMediaStreamId error:', chrome.runtime.lastError.message);
+            sendResponse({ success: false, error: chrome.runtime.lastError.message });
+            return;
+          }
+
+          // 3. Now handle offscreen document and capture (Async)
+          startAudioCapture(tabId, streamId).then(() => {
+            meetingState.audioActive = true;
+            if (!processingInterval) {
+              processingInterval = setInterval(processTranscript, 15000);
+            }
+            broadcastState();
+            sendResponse({ success: true });
+          }).catch(err => {
+            console.error('[BG] Manual audio start failed:', err);
+            sendResponse({ success: false, error: err.message });
+          });
+        });
+      } catch (err) {
+        console.error('[BG] Immediate capture failed:', err);
+        sendResponse({ success: false, error: err.message });
+      }
+
+      return true; // async success
+    }
+
     case 'START_AUDIO_WITH_STREAM': {
       if (!meetingState.isActive) {
         resetState();
         meetingState.isActive = true;
+        meetingState.meetingId = message.meetingId || null;
         meetingState.startTime = Date.now();
         meetingState.timeline.push({ event: 'Meeting started (via audio)', timestamp: Date.now(), elapsed: 0 });
       }
 
       (async () => {
-        await ensureOffscreen();
-        chrome.runtime.sendMessage({
-          type: 'START_CAPTURE',
-          streamId: message.streamId,
-          tabId: message.tabId
-        });
-        meetingState.audioActive = true;
-        if (!processingInterval) {
-          processingInterval = setInterval(processTranscript, 30000);
+        try {
+          await ensureOffscreen();
+          const ready = await waitForOffscreen();
+          if (!ready) {
+            sendResponse({ success: false, error: 'Offscreen document not ready' });
+            return;
+          }
+          chrome.runtime.sendMessage({
+            type: 'START_CAPTURE',
+            streamId: message.streamId,
+            tabId: message.tabId
+          });
+          meetingState.audioActive = true;
+          if (!processingInterval) {
+            processingInterval = setInterval(processTranscript, 15000);
+          }
+          broadcastState();
+          sendResponse({ success: true });
+        } catch (err) {
+          console.error('[BG] Failed to start audio with stream:', err);
+          sendResponse({ success: false, error: err.message });
         }
-        broadcastState();
       })();
 
-      sendResponse({ success: true });
-      break;
+      return true; // Will send response asynchronously
     }
     
     case 'MEETING_ENDED': {
@@ -332,8 +421,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'AUDIO_TRANSCRIBED': {
       const { text, language } = message;
       if (text && text.trim()) {
+        const firstTranscript = meetingState.transcript.length === 0;
         meetingState.transcript.push({ speaker: 'Audio', text, timestamp: Date.now() });
         meetingState.rawBuffer += `${text}\n`;
+        
+        // Accelerate: If this is the first real transcript, trigger AI processing immediately
+        if (firstTranscript && meetingState.isActive) {
+          processTranscript();
+        }
       }
       sendResponse({ success: true });
       break;
