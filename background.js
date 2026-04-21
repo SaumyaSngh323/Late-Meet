@@ -8,8 +8,8 @@ const MAX_PROMPT_LENGTH = 2000;
 const TRANSCRIPT_WINDOW_SIZE = 25;
 const SUMMARIZATION_MAX_TOKENS = 1200;
 const JOINER_MESSAGE_MAX_TOKENS = 120;
-// Delay late-joiner auto messages until 60s to avoid lobby/join churn spam.
-const MIN_MEETING_DURATION_FOR_WELCOME = 60;
+// Delay late-joiner auto messages until 10s to avoid lobby/join churn spam.
+const MIN_MEETING_DURATION_FOR_WELCOME = 10;
 
 const state = {
   isActive: false,
@@ -96,11 +96,19 @@ function snapshot() {
 }
 
 async function broadcastStateUpdate() {
+  const snapshotData = snapshot();
   try {
-    await chrome.runtime.sendMessage({ type: 'STATE_UPDATE', state: snapshot() });
-  } catch {
-    // No active listeners (popup/dashboard closed)
-  }
+    // To popup/dashboard
+    await chrome.runtime.sendMessage({ type: 'STATE_UPDATE', state: snapshotData });
+  } catch { /* ignore */ }
+
+  try {
+    // To content scripts (floating button)
+    const tabs = await chrome.tabs.query({ url: 'https://meet.google.com/*' });
+    for (const tab of tabs) {
+      chrome.tabs.sendMessage(tab.id, { type: 'STATE_UPDATE', state: snapshotData }).catch(() => {});
+    }
+  } catch { /* ignore */ }
 }
 
 async function getApiKey() {
@@ -346,7 +354,7 @@ async function discardPendingSession() {
   await chrome.storage.local.set({ pendingSession: null });
 }
 
-async function startAudioCapture(tabId, meetingId, meetingUrl) {
+async function startAudioCapture(tabId, meetingId, meetingUrl, providedStreamId = null) {
   if (!tabId) throw new Error('Missing target tab id');
 
   await ensureOffscreenDocument();
@@ -362,8 +370,28 @@ async function startAudioCapture(tabId, meetingId, meetingUrl) {
   }
 
   try {
+    let streamId = providedStreamId;
+    
+    if (!streamId) {
+      streamId = await new Promise((resolve) => {
+        chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (id) => {
+          if (chrome.runtime.lastError) {
+            console.error('[LateMeet] getMediaStreamId error (background):', chrome.runtime.lastError.message || chrome.runtime.lastError);
+            resolve(null);
+          } else {
+            resolve(id);
+          }
+        });
+      });
+    }
+
+    if (!streamId) {
+      throw new Error('Failed to get media stream ID for tab capture. Ensure you have given permission.');
+    }
+
     const response = await chrome.runtime.sendMessage({
       type: 'OFFSCREEN_START_CAPTURE',
+      streamId,
       tabId
     });
 
@@ -406,9 +434,48 @@ async function stopAudioCapture(reason = 'Stopped') {
   await closeOffscreenDocumentIfPresent();
 }
 
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete' && tab.url?.includes('meet.google.com/')) {
+    const urlMatch = tab.url.match(/meet\.google\.com\/([a-z\-]+)/);
+    const meetingId = urlMatch ? urlMatch[1] : null;
+    
+    if (meetingId && meetingId !== 'new') {
+      if (!state.isActive) {
+        state.meetingId = meetingId;
+        state.meetingUrl = tab.url;
+        state.targetTabId = tabId;
+        // We don't set isActive = true yet to avoid starting session logic 
+        // until either audio starts or we decide to auto-start.
+        // But we broadcast the update so popup can show "Meeting available"
+        await broadcastStateUpdate();
+      }
+    }
+  }
+});
+
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  const tab = await chrome.tabs.get(activeInfo.tabId);
+  if (tab.url?.includes('meet.google.com/')) {
+    const urlMatch = tab.url.match(/meet\.google\.com\/([a-z\-]+)/);
+    const meetingId = urlMatch ? urlMatch[1] : null;
+    if (meetingId && meetingId !== 'new' && !state.isActive) {
+      state.meetingId = meetingId;
+      state.meetingUrl = tab.url;
+      state.targetTabId = activeInfo.tabId;
+      await broadcastStateUpdate();
+    }
+  }
+});
+
 chrome.tabs.onRemoved.addListener(async tabId => {
   if (state.targetTabId && tabId === state.targetTabId) {
-    await stopAudioCapture('Meeting tab closed');
+    if (state.isActive) {
+      await stopAudioCapture('Meeting tab closed');
+    } else {
+      state.meetingId = null;
+      state.targetTabId = null;
+      await broadcastStateUpdate();
+    }
   }
 });
 
@@ -421,9 +488,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       case 'MANUAL_START_AUDIO': {
+        let tabId = message.tabId;
+        if (tabId === 'current') {
+          tabId = sender?.tab?.id;
+        }
+        
+        if (!tabId) {
+          sendResponse({ success: false, error: 'Target tab not found' });
+          return;
+        }
+
         const meetingId = message.meetingId || state.meetingId;
         const meetingUrl = sender?.tab?.url || state.meetingUrl;
-        await startAudioCapture(message.tabId, meetingId, meetingUrl);
+        await startAudioCapture(tabId, meetingId, meetingUrl, message.streamId);
         sendResponse({ success: true });
         return;
       }
