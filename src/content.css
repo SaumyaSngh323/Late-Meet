@@ -1,0 +1,255 @@
+/* Content Script Styles — Injected into Google Meet pages */
+/* Monochrome theme — matches popup/dashboard */
+
+/* ——— Floating Dashboard Button ——— */
+#mc-float-btn {
+  position: fixed;
+  bottom: 90px;
+  right: 24px;
+  z-index: 999999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(20px) scale(0.9);
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+#mc-float-btn.mc-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+#mc-float-btn:hover {
+  transform: translateY(-2px) scale(1.05);
+}
+
+#mc-float-btn:hover .mc-float-label {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.mc-float-btn-inner {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: #000000;
+  border: 1px solid #262626;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6), 0 0 40px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s ease;
+  color: #FFFFFF;
+}
+
+#mc-float-btn:hover .mc-float-btn-inner {
+  box-shadow: 0 6px 30px rgba(0, 0, 0, 0.8), 0 0 60px rgba(255, 255, 255, 0.05);
+  border-color: #404040;
+}
+
+.mc-float-pulse {
+  position: absolute;
+  inset: -3px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  opacity: 0.5;
+  animation: mc-pulse 2s ease-in-out infinite;
+}
+
+@keyframes mc-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.5; }
+  50% { transform: scale(1.15); opacity: 0; }
+}
+
+.mc-float-icon {
+  position: relative;
+  font-size: 24px;
+  z-index: 1;
+  display: flex;
+  color: #FFFFFF;
+}
+
+.mc-float-label {
+  background: rgba(0, 0, 0, 0.95);
+  backdrop-filter: blur(12px);
+  color: #FAFAFA;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'Inter', 'Segoe UI', sans-serif;
+  padding: 6px 12px;
+  border-radius: 8px;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateX(8px);
+  transition: all 0.3s ease;
+  border: 1px solid #262626;
+}
+
+/* ——— Private Brief Overlay ——— */
+#mc-brief-overlay {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 420px;
+  z-index: 9999999;
+  pointer-events: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 24px;
+  opacity: 0;
+  transform: translateX(100%);
+  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#mc-brief-overlay.mc-visible {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: all;
+}
+
+.mc-brief-card {
+  width: 100%;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.97);
+  backdrop-filter: blur(20px);
+  border-radius: 20px;
+  border: 1px solid #262626;
+  box-shadow: 0 25px 80px rgba(0, 0, 0, 0.8);
+  padding: 24px;
+  font-family: 'Inter', 'Segoe UI', -apple-system, sans-serif;
+  color: #FAFAFA;
+}
+
+.mc-brief-card::-webkit-scrollbar {
+  width: 4px;
+}
+
+.mc-brief-card::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.mc-brief-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #171717;
+}
+
+.mc-brief-icon {
+  font-size: 24px;
+  color: #FFFFFF;
+}
+
+.mc-brief-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #FFFFFF;
+}
+
+.mc-brief-close {
+  background: #171717;
+  border: 1px solid #262626;
+  color: #A3A3A3;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.mc-brief-close:hover {
+  background: #262626;
+  border-color: #404040;
+  color: #FFFFFF;
+}
+
+.mc-brief-greeting {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: #FFFFFF;
+}
+
+.mc-brief-text {
+  font-size: 14px;
+  color: #A3A3A3;
+  margin-bottom: 20px;
+}
+
+.mc-brief-section {
+  margin-bottom: 16px;
+  padding: 14px;
+  background: #0A0A0A;
+  border-radius: 12px;
+  border: 1px solid #171717;
+}
+
+.mc-brief-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #FAFAFA;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+}
+
+.mc-brief-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.mc-brief-list li {
+  position: relative;
+  padding: 6px 0 6px 18px;
+  font-size: 13px;
+  color: #A3A3A3;
+  line-height: 1.5;
+}
+
+.mc-brief-list li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: #FFFFFF;
+  font-weight: 700;
+}
+
+.mc-brief-current {
+  font-size: 14px;
+  color: #FAFAFA;
+  font-weight: 500;
+  padding: 8px 12px;
+  background: #171717;
+  border-radius: 8px;
+  border-left: 3px solid #FFFFFF;
+}
+
+.mc-brief-footer {
+  text-align: center;
+  font-size: 11px;
+  color: #525252;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #171717;
+  font-style: italic;
+}
