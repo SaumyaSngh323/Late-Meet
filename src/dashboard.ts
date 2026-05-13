@@ -54,59 +54,64 @@ document.addEventListener('DOMContentLoaded', async () => {
       audioBtn.disabled = true;
       audioBtn.textContent = 'Starting...';
 
-      const meetTabs = await chrome.tabs.query({ url: 'https://meet.google.com/*' });
-      if (meetTabs.length === 0) {
-        throw new Error('No Google Meet tab found');
-      }
-      const meetTab = meetTabs[0];
-      const urlMatch = meetTab.url?.match(/meet\.google\.com\/([a-z\-]+)/);
-      const meetingId = urlMatch ? urlMatch[1] : null;
+      chrome.tabs.query({ url: 'https://meet.google.com/*' }, (meetTabs) => {
+        if (meetTabs.length === 0) {
+          handleDashboardAudioError(new Error('No Google Meet tab found'));
+          return;
+        }
+        const meetTab = meetTabs[0];
+        const urlMatch = meetTab.url?.match(/meet\.google\.com\/([a-z\-]+)/);
+        const meetingId = urlMatch ? urlMatch[1] : null;
 
-      // --- Get Media Stream ID in foreground (dashboard) to ensure user gesture propagation ---
-      const streamId = await new Promise((resolve) => {
-        chrome.tabCapture.getMediaStreamId({ targetTabId: meetTab.id }, (id) => {
+        // --- Get Media Stream ID in foreground (dashboard) to ensure user gesture propagation ---
+        chrome.tabCapture.getMediaStreamId({ targetTabId: meetTab.id }, async (streamId) => {
           if (chrome.runtime.lastError) {
             const err = chrome.runtime.lastError.message || 'Unknown error';
             console.error('[Dashboard] getMediaStreamId error:', err);
             if (err.includes('active stream')) {
-              resolve('ALREADY_CAPTURING');
+              setAudioBtnActive(true);
+              return;
             } else {
-              resolve(null);
+              handleDashboardAudioError(new Error('Capture permission denied. Try clicking "Start Audio" again.'));
+              return;
             }
-          } else {
-            resolve(id);
+          }
+
+          if (!streamId) {
+            handleDashboardAudioError(new Error('Capture permission denied. Try clicking "Start Audio" again.'));
+            return;
+          }
+
+          try {
+            const response = await chrome.runtime.sendMessage({
+              type: 'MANUAL_START_AUDIO',
+              tabId: meetTab.id,
+              meetingId: meetingId,
+              streamId: streamId,
+              includeMicrophone: true
+            });
+
+            if (response && response.success) {
+              setAudioBtnActive(true);
+              // Start timer immediately
+              startTimer(Date.now());
+              const statusText = document.getElementById('dash-status-text');
+              const statusDot = document.querySelector('.dash-status-dot');
+              if (statusText) statusText.textContent = `Meeting active — ${meetingId || 'unknown'}`;
+              if (statusDot) statusDot.classList.add('active');
+            } else {
+              throw new Error(response?.error || 'Failed to start audio');
+            }
+          } catch (err: any) {
+            handleDashboardAudioError(err);
           }
         });
       });
-
-      if (!streamId) {
-        throw new Error('Capture permission denied. Try clicking "Start Audio" again.');
-      }
-
-      if (streamId === 'ALREADY_CAPTURING') {
-        setAudioBtnActive(true);
-        return;
-      }
-
-      const response = await chrome.runtime.sendMessage({
-        type: 'MANUAL_START_AUDIO',
-        tabId: meetTab.id,
-        meetingId: meetingId,
-        streamId: streamId
-      });
-
-      if (response && response.success) {
-        setAudioBtnActive(true);
-        // Start timer immediately
-        startTimer(Date.now());
-        const statusText = document.getElementById('dash-status-text');
-        const statusDot = document.querySelector('.dash-status-dot');
-        if (statusText) statusText.textContent = `Meeting active — ${meetingId || 'unknown'}`;
-        if (statusDot) statusDot.classList.add('active');
-      } else {
-        throw new Error(response?.error || 'Failed to start audio');
-      }
     } catch (err: any) {
+      handleDashboardAudioError(err);
+    }
+
+    function handleDashboardAudioError(err: any) {
       console.error('[Dashboard] Failed to start audio:', err);
       if (audioBtn) {
         audioBtn.disabled = false;

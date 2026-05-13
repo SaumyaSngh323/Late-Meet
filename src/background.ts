@@ -1,4 +1,4 @@
-// MV3 service worker for Late Meet
+0// MV3 service worker for Late Meet
 
 const OPENAI_CHAT_URL = 'https://api.openai.com/v1/chat/completions';
 const OPENAI_WHISPER_URL = 'https://api.openai.com/v1/audio/transcriptions';
@@ -8,10 +8,12 @@ const MAX_PROMPT_LENGTH = 2000;
 const TRANSCRIPT_WINDOW_SIZE = 25;
 const SUMMARIZATION_MAX_TOKENS = 1200;
 const JOINER_MESSAGE_MAX_TOKENS = 120;
+const ELEVENLABS_STT_MODEL = 'scribe_v2';
 // Delay late-joiner auto messages until 10s to avoid lobby/join churn spam.
 const MIN_MEETING_DURATION_FOR_WELCOME = 10;
 
 import { State } from './types';
+import { audioFileExtensionForMimeType } from './audioProcessing';
 
 const state: State = {
   isActive: false,
@@ -184,20 +186,11 @@ async function transcribeChunk(base64Audio: string, mimeType = 'audio/webm', pro
 
   if (elevenlabsKey) {
     try {
-      // Use ElevenLabs directly here without SDK if we want to avoid bundling issues, 
-      // but user wanted SDK. Let's use the SDK approach we added to api.js?
-      // Actually we are in background.ts. Since api.js is not imported here, we need to import it or rewrite.
-      // background.ts already had fetch logic for whisper. Let's write the ElevenLabs fetch logic to be safe, 
-      // or import from api.js.
-      let extension = 'webm';
-      if (mimeType.includes('ogg')) extension = 'ogg';
-      else if (mimeType.includes('mp3')) extension = 'mp3';
-      else if (mimeType.includes('wav')) extension = 'wav';
-      else if (mimeType.includes('flac')) extension = 'flac';
+      const extension = audioFileExtensionForMimeType(mimeType);
 
       const formData = new FormData();
       formData.append('file', blob, `audio.${extension}`);
-      formData.append('model_id', 'scribe_v1');
+      formData.append('model_id', ELEVENLABS_STT_MODEL);
 
       const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
         method: 'POST',
@@ -224,11 +217,7 @@ async function transcribeChunk(base64Audio: string, mimeType = 'audio/webm', pro
   const apiKey = await getApiKey();
   if (!apiKey) return null;
 
-  let extension = 'webm';
-  if (mimeType.includes('ogg')) extension = 'ogg';
-  else if (mimeType.includes('mp3')) extension = 'mp3';
-  else if (mimeType.includes('wav')) extension = 'wav';
-  else if (mimeType.includes('flac')) extension = 'flac';
+  const extension = audioFileExtensionForMimeType(mimeType);
 
   const formData = new FormData();
   formData.append('file', blob, `audio.${extension}`);
@@ -258,12 +247,16 @@ async function transcribeChunk(base64Audio: string, mimeType = 'audio/webm', pro
 async function refineTranscription(rawText: string) {
   if (!rawText || rawText.length < 5) return rawText;
 
+  // Skip refinement for very short or likely-noise transcriptions
+  const words = rawText.trim().split(/\s+/);
+  if (words.length < 3) return rawText;
+
   const apiKey = await getApiKey();
   if (!apiKey) return rawText;
 
   const systemPrompt = `You are an expert AI transcription editor. 
 Your task is to correct errors, remove filler words (um, uh, like), and improve the clarity of the provided meeting transcript segment while strictly preserving the speaker's original meaning and intent. 
-Return only the corrected text.`;
+Return ONLY the corrected transcript text. If the input is unclear, inaudible, or empty, return the exact input unchanged. Never add commentary, apologies, or meta-responses.`;
 
   try {
     const response = await fetch(OPENAI_CHAT_URL, {
@@ -285,7 +278,23 @@ Return only the corrected text.`;
 
     if (!response.ok) return rawText;
     const data = await response.json();
-    return data?.choices?.[0]?.message?.content?.trim() || rawText;
+    const refined = data?.choices?.[0]?.message?.content?.trim() || rawText;
+
+    // Guard against AI hallucination / apology responses
+    const lowerRefined = refined.toLowerCase();
+    if (
+      lowerRefined.startsWith("i'm sorry") ||
+      lowerRefined.startsWith('i apologize') ||
+      lowerRefined.startsWith('sorry,') ||
+      lowerRefined.includes('no text provided') ||
+      lowerRefined.includes('please provide') ||
+      lowerRefined.includes('i cannot') ||
+      lowerRefined.includes('there is no')
+    ) {
+      return rawText;
+    }
+
+    return refined;
   } catch (err) {
     console.error('[LateMeet] Refinement failed:', err);
     return rawText;
@@ -499,7 +508,13 @@ async function discardPendingSession() {
   await chrome.storage.local.set({ pendingSession: null });
 }
 
-async function startAudioCapture(tabId: number, meetingId: string | null, meetingUrl: string | null, providedStreamId: string | null = null) {
+async function startAudioCapture(
+  tabId: number,
+  meetingId: string | null,
+  meetingUrl: string | null,
+  providedStreamId: string | null = null,
+  includeMicrophone = true
+) {
   if (!tabId) throw new Error('Missing target tab id');
 
   await ensureOffscreenDocument();
@@ -537,7 +552,8 @@ async function startAudioCapture(tabId: number, meetingId: string | null, meetin
     const response = await chrome.runtime.sendMessage({
       type: 'OFFSCREEN_START_CAPTURE',
       streamId,
-      tabId
+      tabId,
+      includeMicrophone
     });
 
     if (!response?.success) {
@@ -546,6 +562,9 @@ async function startAudioCapture(tabId: number, meetingId: string | null, meetin
 
     state.audioActive = true;
     addTimeline('Audio capture started');
+    if (response.microphoneActive === false) {
+      addTimeline('Microphone capture unavailable; recording tab audio only');
+    }
     await broadcastStateUpdate();
   } catch (err) {
     state.audioActive = false;
@@ -669,6 +688,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
 
+      case 'OPEN_SIDE_PANEL': {
+        const callerTabId = sender?.tab?.id;
+        if (callerTabId) {
+          await chrome.sidePanel.open({ tabId: callerTabId });
+        }
+        sendResponse({ success: true });
+        return;
+      }
+
       case 'MANUAL_START_AUDIO': {
         let tabId = message.tabId;
         if (tabId === 'current') {
@@ -682,7 +710,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         const meetingId = message.meetingId || state.meetingId;
         const meetingUrl = sender?.tab?.url || state.meetingUrl;
-        await startAudioCapture(tabId, meetingId, meetingUrl, message.streamId);
+        await startAudioCapture(tabId, meetingId, meetingUrl, message.streamId, message.includeMicrophone !== false);
         sendResponse({ success: true });
         return;
       }
@@ -703,8 +731,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         try {
           const prompt = getTranscriptionPrompt();
           const rawText = await transcribeChunk(message.audioBase64, message.mimeType, prompt);
+          console.log('[LateMeet] Raw transcription:', rawText);
           if (rawText) {
             const refinedText = await refineTranscription(rawText);
+            console.log('[LateMeet] Refined transcription:', refinedText);
             state.transcript.push({ speaker: 'Audio', text: refinedText, timestamp: Date.now() });
             await summarizeTranscriptIfNeeded();
             await broadcastStateUpdate();
@@ -732,12 +762,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       case 'SAVE_SESSION': {
         await persistSession();
+        await broadcastStateUpdate();
         sendResponse({ success: true });
         return;
       }
 
       case 'DISCARD_SESSION': {
         await discardPendingSession();
+        await broadcastStateUpdate();
         sendResponse({ success: true });
         return;
       }

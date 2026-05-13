@@ -10,9 +10,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   let lastState: State | null = null;
 
   // ——— Check if API key is configured ———
-  const config = await chrome.storage.local.get(['openai_api_key']);
+  const config = await chrome.storage.local.get(['openai_api_key', 'elevenlabs_api_key']);
   
-  if (!config.openai_api_key) {
+  if (!config.openai_api_key && !config.elevenlabs_api_key) {
     setupView.style.display = 'block';
     mainView.style.display = 'none';
   } else {
@@ -30,6 +30,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
+    // Since the popup only has one input currently, we'll save it as openai_api_key
+    // Users can configure ElevenLabs in the options page.
     await chrome.storage.local.set({ openai_api_key: apiKey });
 
     setupView.style.display = 'none';
@@ -75,70 +77,78 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (textEl) textEl.textContent = 'Starting...';
       btn.classList.add('loading');
 
-      const tabs = await chrome.tabs.query({ url: 'https://meet.google.com/*' });
-      if (tabs.length === 0) {
-        throw new Error('No Google Meet tab found. Join a meeting first.');
-      }
-      const meetTab = tabs[0];
+      chrome.tabs.query({ url: 'https://meet.google.com/*' }, (tabs) => {
+        if (tabs.length === 0) {
+          handleStartAudioError(new Error('No Google Meet tab found. Join a meeting first.'));
+          return;
+        }
+        const meetTab = tabs[0];
 
-      // Extract meeting ID from tab URL
-      const urlMatch = meetTab.url?.match(/meet\.google\.com\/([a-z\-]+)/);
-      const meetingId = urlMatch ? urlMatch[1] : null;
+        // Extract meeting ID from tab URL
+        const urlMatch = meetTab.url?.match(/meet\.google\.com\/([a-z\-]+)/);
+        const meetingId = urlMatch ? urlMatch[1] : null;
 
-      // --- Get Media Stream ID in foreground (popup) to ensure user gesture propagation ---
-      const streamId = await new Promise((resolve) => {
-        chrome.tabCapture.getMediaStreamId({ targetTabId: meetTab.id }, (id) => {
+        // --- Get Media Stream ID in foreground (popup) to ensure user gesture propagation ---
+        chrome.tabCapture.getMediaStreamId({ targetTabId: meetTab.id }, async (streamId) => {
           if (chrome.runtime.lastError) {
             const err = chrome.runtime.lastError.message || 'Unknown error';
             console.error('[LateMeet] Popup getMediaStreamId error:', err);
             // If already capturing, we can treat it as success or inform the background
             if (err.includes('active stream')) {
-              resolve('ALREADY_CAPTURING');
+              setCopilotActive(true);
+              return;
             } else {
-              resolve(null);
+              handleStartAudioError(new Error('Capture permission denied. Try clicking the extension icon again on the Meet tab.'));
+              return;
             }
-          } else {
-            resolve(id);
+          }
+
+          if (!streamId) {
+            handleStartAudioError(new Error('Capture permission denied. Try clicking the extension icon again on the Meet tab.'));
+            return;
+          }
+
+          try {
+            const response = await chrome.runtime.sendMessage({
+              type: 'MANUAL_START_AUDIO',
+              tabId: meetTab.id,
+              meetingId: meetingId,
+              streamId: streamId,
+              includeMicrophone: true
+            });
+
+            if (response && response.success) {
+              // Clear loading state before setting active state
+              btn.disabled = false;
+              btn.classList.remove('loading');
+              setCopilotActive(true);
+              // Immediately show meeting section and start timer
+              if (meetingSection) meetingSection.style.display = 'block';
+              if (noMeetingSection) noMeetingSection.style.display = 'none';
+              if (meetingId) {
+                const meetingIdEl = document.getElementById('meeting-id');
+                if (meetingIdEl) meetingIdEl.textContent = meetingId;
+              }
+              const badge = document.getElementById('status-badge');
+              if (badge) {
+                badge.className = 'status-badge active';
+                const statusText = badge.querySelector('.status-text');
+                if (statusText) statusText.textContent = 'Recording...';
+              }
+              startDurationTimer(Date.now());
+            } else {
+              throw new Error(response?.error || 'Failed to start audio capture');
+            }
+          } catch (err: any) {
+            handleStartAudioError(err);
           }
         });
       });
-
-      if (!streamId) {
-        throw new Error('Capture permission denied. Try clicking the extension icon again on the Meet tab.');
-      }
-
-      if (streamId === 'ALREADY_CAPTURING') {
-        setCopilotActive(true);
-        return;
-      }
-
-      const response = await chrome.runtime.sendMessage({
-        type: 'MANUAL_START_AUDIO',
-        tabId: meetTab.id,
-        meetingId: meetingId,
-        streamId: streamId
-      });
-
-      if (response && response.success) {
-        setCopilotActive(true);
-        // Immediately show meeting section and start timer
-        if (meetingSection) meetingSection.style.display = 'block';
-        if (noMeetingSection) noMeetingSection.style.display = 'none';
-        if (meetingId) {
-          const meetingIdEl = document.getElementById('meeting-id');
-          if (meetingIdEl) meetingIdEl.textContent = meetingId;
-        }
-        const badge = document.getElementById('status-badge');
-        if (badge) {
-          badge.className = 'status-badge active';
-          const statusText = badge.querySelector('.status-text');
-          if (statusText) statusText.textContent = 'Recording...';
-        }
-        startDurationTimer(Date.now());
-      } else {
-        throw new Error(response?.error || 'Failed to start audio capture');
-      }
     } catch (err: any) {
+      handleStartAudioError(err);
+    }
+
+    function handleStartAudioError(err: any) {
       console.error('Failed to start audio capture:', err);
       btn.disabled = false;
       btn.classList.remove('loading');
@@ -166,8 +176,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const textEl = copilotBtn.querySelector('.copilot-btn-text');
     
     if (active) {
+      copilotBtn.classList.remove('loading');
       copilotBtn.classList.add('active');
-      if (textEl) textEl.textContent = 'Copilot Active';
+      if (textEl) textEl.textContent = 'Recording...';
       if (iconEl) iconEl.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>';
       copilotBtn.disabled = true;
       if (miniBtn) miniBtn.style.display = 'none';

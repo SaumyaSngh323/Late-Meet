@@ -1,8 +1,14 @@
+import { VoiceActivityTracker } from './audioProcessing';
+
 let mediaStream: MediaStream | null = null;
+let microphoneStream: MediaStream | null = null;
+let recorderStream: MediaStream | null = null;
 let mediaRecorder: MediaRecorder | null = null;
 let audioContext: AudioContext | null = null;
 let analyserNode: AnalyserNode | null = null;
 let chunkTimer: number | NodeJS.Timeout | null = null;
+let vadTimer: number | NodeJS.Timeout | null = null;
+let audioSources: MediaStreamAudioSourceNode[] = [];
 
 let pendingChunks: Blob[] = [];
 let isChunkRequested = false;
@@ -10,18 +16,32 @@ let isStopping = false;
 let isDrainingQueue = false;
 
 const CHUNK_MS = 8000;
+const VAD_SAMPLE_MS = 250;
 const RMS_THRESHOLD = 0.012;
-const SILENCE_LIMIT = 3;
-let consecutiveSilent = 0;
 let isFlushInProgress = false;
+let voiceActivity = new VoiceActivityTracker({ rmsThreshold: RMS_THRESHOLD });
 
 function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
+    const cleanup = () => {
+      reader.onloadend = null;
+      reader.onerror = null;
+      reader.onabort = null;
+    };
     reader.onloadend = () => {
+      cleanup();
       const result = reader.result as string;
       const base64String = result.split(',')[1];
       resolve(base64String);
+    };
+    reader.onerror = () => {
+      cleanup();
+      reject(reader.error ?? new Error('FileReader failed to read blob'));
+    };
+    reader.onabort = () => {
+      cleanup();
+      reject(new Error('FileReader read was aborted'));
     };
     reader.readAsDataURL(blob);
   });
@@ -56,15 +76,7 @@ async function flushAudioChunk() {
 
   isFlushInProgress = true;
   try {
-    const rms = getCurrentRms();
-    if (rms < RMS_THRESHOLD) {
-      consecutiveSilent += 1;
-      if (consecutiveSilent >= SILENCE_LIMIT) {
-        return;
-      }
-    } else {
-      consecutiveSilent = 0;
-    }
+    if (!voiceActivity.consumeShouldFlush()) return;
 
     isChunkRequested = true;
     mediaRecorder.requestData();
@@ -74,7 +86,8 @@ async function flushAudioChunk() {
 }
 
 async function postChunk(blob: Blob) {
-  if (!blob || blob.size < 1024) return; // Ignore tiny chunks (<1KB) to avoid API errors
+  console.log('[LateMeet][offscreen] postChunk called, blob size:', blob?.size || 0);
+  if (!blob || blob.size < 1024) { console.log('[LateMeet][offscreen] Chunk too small, skipping'); return; }
 
   const audioBase64 = await blobToBase64(blob);
   const mimeType = mediaRecorder?.mimeType || 'audio/webm';
@@ -101,12 +114,12 @@ async function drainPendingChunks() {
   }
 }
 
-async function startCapture(streamId: string, _tabId: number) {
-  if (mediaRecorder && mediaRecorder.state === 'recording') {
-    return;
-  }
+function stopTracks(stream: MediaStream | null) {
+  stream?.getTracks().forEach(track => track.stop());
+}
 
-  mediaStream = await navigator.mediaDevices.getUserMedia({
+async function getTabAudioStream(streamId: string) {
+  return navigator.mediaDevices.getUserMedia({
     audio: {
       // @ts-ignore - chromeMediaSource is non-standard
       mandatory: {
@@ -116,19 +129,67 @@ async function startCapture(streamId: string, _tabId: number) {
     } as any,
     video: false
   });
+}
+
+async function getMicrophoneStream() {
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      },
+      video: false
+    });
+  } catch (err) {
+    console.warn('[LateMeet][offscreen] Microphone capture unavailable; recording tab audio only:', err);
+    return null;
+  }
+}
+
+function connectSourceToRecorder(stream: MediaStream, destination: MediaStreamAudioDestinationNode) {
+  if (!audioContext || !analyserNode) return;
+
+  const source = audioContext.createMediaStreamSource(stream);
+  source.connect(destination);
+  source.connect(analyserNode);
+  audioSources.push(source);
+}
+
+async function startCapture(streamId: string, _tabId: number, includeMicrophone = true) {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    console.log('[LateMeet][offscreen] Capture started. Mic active:', Boolean(microphoneStream), '| MIME:', mimeType || 'default');
+  return { microphoneActive: Boolean(microphoneStream) };
+  }
+
+  mediaStream = await getTabAudioStream(streamId);
 
   if (!mediaStream) {
     throw new Error('Failed to capture tab audio stream');
   }
 
   audioContext = new AudioContext();
-  const source = audioContext.createMediaStreamSource(mediaStream);
+  const destination = audioContext.createMediaStreamDestination();
   analyserNode = audioContext.createAnalyser();
   analyserNode.fftSize = 1024;
-  source.connect(analyserNode);
+
+  const tabSource = audioContext.createMediaStreamSource(mediaStream);
+  tabSource.connect(destination);
+  tabSource.connect(analyserNode);
+  tabSource.connect(audioContext.destination);
+  audioSources.push(tabSource);
+
+  if (includeMicrophone) {
+    microphoneStream = await getMicrophoneStream();
+    if (microphoneStream) {
+      connectSourceToRecorder(microphoneStream, destination);
+    }
+  }
+
+  recorderStream = destination.stream;
 
   const mimeType = pickSupportedMimeType();
-  mediaRecorder = mimeType ? new MediaRecorder(mediaStream, { mimeType }) : new MediaRecorder(mediaStream);
+  mediaRecorder = mimeType ? new MediaRecorder(recorderStream, { mimeType }) : new MediaRecorder(recorderStream);
 
   mediaRecorder.addEventListener('dataavailable', (event: BlobEvent) => {
     if (event.data && event.data.size > 0) {
@@ -138,6 +199,11 @@ async function startCapture(streamId: string, _tabId: number) {
   });
 
   mediaRecorder.start();
+  voiceActivity = new VoiceActivityTracker({ rmsThreshold: RMS_THRESHOLD });
+
+  vadTimer = setInterval(() => {
+    voiceActivity.observe(getCurrentRms());
+  }, VAD_SAMPLE_MS);
 
   chunkTimer = setInterval(async () => {
     try {
@@ -148,12 +214,19 @@ async function startCapture(streamId: string, _tabId: number) {
       console.error('[LateMeet][offscreen] Chunk pipeline error:', err);
     }
   }, CHUNK_MS);
+
+  console.log('[LateMeet][offscreen] Capture started. Mic active:', Boolean(microphoneStream), '| MIME:', mimeType || 'default');
+  return { microphoneActive: Boolean(microphoneStream) };
 }
 
 async function stopCapture() {
   if (chunkTimer) {
     clearInterval(chunkTimer as any);
     chunkTimer = null;
+  }
+  if (vadTimer) {
+    clearInterval(vadTimer as any);
+    vadTimer = null;
   }
   isStopping = true;
 
@@ -170,10 +243,12 @@ async function stopCapture() {
 
   await drainPendingChunks();
 
-  if (mediaStream) {
-    mediaStream.getTracks().forEach(track => track.stop());
-    mediaStream = null;
-  }
+  stopTracks(mediaStream);
+  stopTracks(microphoneStream);
+  stopTracks(recorderStream);
+  mediaStream = null;
+  microphoneStream = null;
+  recorderStream = null;
 
   if (audioContext) {
     await audioContext.close();
@@ -182,18 +257,24 @@ async function stopCapture() {
 
   mediaRecorder = null;
   analyserNode = null;
+  audioSources = [];
   pendingChunks = [];
   isChunkRequested = false;
   isStopping = false;
-  consecutiveSilent = 0;
+  voiceActivity = new VoiceActivityTracker({ rmsThreshold: RMS_THRESHOLD });
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  // Only handle messages intended for the offscreen document
+  if (!message?.type?.startsWith('OFFSCREEN_')) {
+    return false; // Not for us — let other listeners handle it
+  }
+
   (async () => {
-    if (message?.type === 'OFFSCREEN_START_CAPTURE') {
+    if (message.type === 'OFFSCREEN_START_CAPTURE') {
       try {
-        await startCapture(message.streamId, message.tabId);
-        sendResponse({ success: true });
+        const captureInfo = await startCapture(message.streamId, message.tabId, message.includeMicrophone !== false);
+        sendResponse({ success: true, ...captureInfo });
       } catch (err) {
         console.error('[LateMeet][offscreen] Failed to start capture:', (err as Error).message);
         sendResponse({ success: false, error: (err as Error).message || 'Start capture failed' });
@@ -201,7 +282,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return;
     }
 
-    if (message?.type === 'OFFSCREEN_STOP_CAPTURE') {
+    if (message.type === 'OFFSCREEN_STOP_CAPTURE') {
       try {
         await stopCapture();
       } finally {
@@ -211,7 +292,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return;
     }
 
-    sendResponse({ success: false, error: 'Unknown message type' });
+    sendResponse({ success: false, error: 'Unknown offscreen message type' });
   })();
 
   return true;

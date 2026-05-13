@@ -256,24 +256,17 @@
     btn.addEventListener('click', async () => {
       btn.disabled = true;
       const textSpan = btn.querySelector('.late-meet-btn-text');
-      if (textSpan) textSpan.textContent = 'Starting...';
+      if (textSpan) textSpan.textContent = 'Opening Copilot...';
       
       try {
-        const response = await chrome.runtime.sendMessage({
-          type: 'MANUAL_START_AUDIO',
-          tabId: 'current',
-          meetingId: window.location.pathname.split('/')[1]
-        });
-
-        if (response?.success) {
-          btn.style.display = 'none';
-        } else {
-          throw new Error(response?.error || 'Failed to start');
-        }
+        // Open the side panel (dashboard) where tabCapture can be properly initiated
+        // with user gesture context. Content scripts cannot use chrome.tabCapture.
+        await chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' });
+        btn.style.display = 'none';
       } catch (err) {
-        console.error(`${COPILOT_PREFIX} Error starting audio:`, err);
+        console.error(`${COPILOT_PREFIX} Error opening side panel:`, err);
         btn.disabled = false;
-        if (textSpan) textSpan.textContent = 'Error — Retry';
+        if (textSpan) textSpan.textContent = 'Start Copilot';
       }
     });
 
@@ -311,7 +304,7 @@
       return false;
     }
 
-    sendResponse({ success: false, error: 'Unknown message type' });
+    // Don't handle unknown messages — let other listeners process them
     return false;
   });
 
