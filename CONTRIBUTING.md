@@ -9,17 +9,17 @@ We welcome bug reports, feature suggestions, documentation improvements, UI enha
 
 # Table of Contents
 
-* [Prerequisites](#prerequisites)
-* [Contribution Workflow & Assignment Rules](#contribution-workflow--assignment-rules)
-* [How to Fork and Clone](#how-to-fork-and-clone)
-* [How to Run Locally](#how-to-run-locally)
-* [Project Structure](#project-structure)
-* [How to Pick an Issue](#how-to-pick-an-issue)
-* [Branch Naming Convention](#branch-naming-convention)
-* [Pull Request Guidelines](#pull-request-guidelines)
-* [How to Test Changes](#how-to-test-changes)
-* [Code Style Guidelines](#code-style-guidelines)
-* [Need Help?](#need-help)
+- [Prerequisites](#prerequisites)
+- [Contribution Workflow & Assignment Rules](#contribution-workflow--assignment-rules)
+- [How to Fork and Clone](#how-to-fork-and-clone)
+- [How to Run Locally](#how-to-run-locally)
+- [Project Structure](#project-structure)
+- [How to Pick an Issue](#how-to-pick-an-issue)
+- [Branch Naming Convention](#branch-naming-convention)
+- [Pull Request Guidelines](#pull-request-guidelines)
+- [How to Test Changes](#how-to-test-changes)
+- [Code Style Guidelines](#code-style-guidelines)
+- [Need Help?](#need-help)
 
 ---
 
@@ -27,12 +27,11 @@ We welcome bug reports, feature suggestions, documentation improvements, UI enha
 
 Before you begin, ensure you have the following installed/configured:
 
-* **Node.js**: Version 18 or higher
-* **Google Chrome**: Latest stable version with Developer Mode enabled
-* **API Keys**:
-
-  * OpenAI API Key
-  * Optional ElevenLabs API Key for transcription features
+- **Node.js**: Version 18 or higher
+- **Google Chrome**: Latest stable version with Developer Mode enabled
+- **API Keys**:
+  - OpenAI API Key
+  - Optional ElevenLabs API Key for transcription features
 
 > [!WARNING]
 > Some extension features rely on Chrome Manifest V3 APIs, Offscreen Documents, and `chrome.tabCapture` integration.
@@ -40,8 +39,8 @@ Before you begin, ensure you have the following installed/configured:
 
 To update Chrome:
 
-* Open `chrome://settings/help`
-* Update to the latest stable version
+- Open `chrome://settings/help`
+- Update to the latest stable version
 
 ---
 
@@ -51,37 +50,37 @@ To keep contributions organized during open-source programs like **GSSoC** and a
 
 ## Before You Start
 
-* Do **not** start working on an issue until it has been assigned to you by a maintainer.
-* Please avoid opening Pull Requests without prior assignment.
-* Forking the repository is completely allowed, but unassigned PRs may be closed.
+- Do **not** start working on an issue until it has been assigned to you by a maintainer.
+- Please avoid opening Pull Requests without prior assignment.
+- Forking the repository is completely allowed, but unassigned PRs may be closed.
 
 ## Getting an Issue Assigned
 
-* Comment on the issue with your implementation approach instead of only writing:
+- Comment on the issue with your implementation approach instead of only writing:
+  - `"assign this issue to me"`
 
-  * `"assign this issue to me"`
-* Issues are generally assigned on a **first meaningful interaction** basis.
-* Priority may be given to contributors who clearly demonstrate understanding of the issue.
+- Issues are generally assigned on a **first meaningful interaction** basis.
+- Priority may be given to contributors who clearly demonstrate understanding of the issue.
 
 ## Assignment Limits
 
-* Contributors may work on **one issue at a time** unless approved otherwise.
-* If no meaningful progress or PR activity is shown within a few days, the issue may be reassigned.
+- Contributors may work on **one issue at a time** unless approved otherwise.
+- If no meaningful progress or PR activity is shown within a few days, the issue may be reassigned.
 
 ## Pull Request Rules
 
-* PRs must reference the related issue number.
-* Duplicate PRs for already assigned issues are likely to be closed.
-* Large feature additions should first be discussed in an issue before implementation.
+- PRs must reference the related issue number.
+- Duplicate PRs for already assigned issues are likely to be closed.
+- Large feature additions should first be discussed in an issue before implementation.
 
 ## Maintainer Rights
 
 Maintainers reserve the right to:
 
-* reassign issues,
-* close inactive assignments,
-* reject unrelated or low-quality PRs,
-* and enforce repository contribution standards.
+- reassign issues,
+- close inactive assignments,
+- reject unrelated or low-quality PRs,
+- and enforce repository contribution standards.
 
 ---
 
@@ -141,9 +140,8 @@ npm run build
 1. Click the extension icon
 2. Open **Options**
 3. Enter:
-
-   * OpenAI API Key
-   * Optional ElevenLabs API Key
+   - OpenAI API Key
+   - Optional ElevenLabs API Key
 
 ---
 
@@ -176,14 +174,14 @@ src/
 
 # How to Pick an Issue
 
-* Check the **Issues** tab for open issues.
-* Look for:
+- Check the **Issues** tab for open issues.
+- Look for:
+  - `good first issue`
+  - `help wanted`
+  - `gssoc`
 
-  * `good first issue`
-  * `help wanted`
-  * `gssoc`
-* Comment on the issue before starting work.
-* If you have a new feature idea, open an issue for discussion first.
+- Comment on the issue before starting work.
+- If you have a new feature idea, open an issue for discussion first.
 
 ---
 
@@ -228,18 +226,18 @@ git push origin feature/my-awesome-feature
 
 ## Open a Pull Request
 
-* Open the PR against the `main` branch
-* Link related issues:
+- Open the PR against the `main` branch
+- Link related issues:
 
   ```txt
   Fixes #12
   ```
-* Add screenshots for UI changes
-* Clearly explain:
 
-  * what changed,
-  * why it changed,
-  * and how it was tested
+- Add screenshots for UI changes
+- Clearly explain:
+  - what changed,
+  - why it changed,
+  - and how it was tested
 
 ---
 
@@ -253,43 +251,44 @@ npm run build
 
 ## Reload the Extension
 
-* Open:
+- Open:
 
   ```txt
   chrome://extensions/
   ```
-* Click the refresh icon for the extension
+
+- Click the refresh icon for the extension
 
 ## Manual Testing
 
 Join a Google Meet and verify:
 
-* meeting detection,
-* participant extraction,
-* overlays,
-* dashboard behavior,
-* and transcription flow.
+- meeting detection,
+- participant extraction,
+- overlays,
+- dashboard behavior,
+- and transcription flow.
 
 ## Tests
 
 If adding utilities or reusable logic:
 
-* add corresponding `.test.ts` files when applicable.
+- add corresponding `.test.ts` files when applicable.
 
 ---
 
 # Code Style Guidelines
 
-* Use **TypeScript** for all new source files
-* Follow the existing monochromatic UI design system
-* Use:
+- Use **TypeScript** for all new source files
+- Follow the existing monochromatic UI design system
+- Use:
+  - deep blacks,
+  - whites,
+  - subtle glassmorphism
 
-  * deep blacks,
-  * whites,
-  * subtle glassmorphism
-* Use **vanilla CSS only**
-* Avoid unnecessary dependencies
-* Prefer clean, modular, maintainable code
+- Use **vanilla CSS only**
+- Avoid unnecessary dependencies
+- Prefer clean, modular, maintainable code
 
 ---
 
@@ -297,8 +296,8 @@ If adding utilities or reusable logic:
 
 If you're stuck or have questions:
 
-* Open a **Discussion**
-* Comment on the issue you're working on
-* Reach out through the repository issue tracker
+- Open a **Discussion**
+- Comment on the issue you're working on
+- Reach out through the repository issue tracker
 
 We appreciate every contribution and look forward to collaborating with you 🚀

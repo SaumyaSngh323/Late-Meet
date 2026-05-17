@@ -4,8 +4,7 @@ about: "Thank you for helping improve Late-Meet \U0001F680 Please fill out the s
   below with as much detail as possible to help us reproduce and fix the issue efficiently."
 title: "[BUG] "
 labels: bug, gssoc
-assignees: ''
-
+assignees: ""
 ---
 
 📌 Bug Description
