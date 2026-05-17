@@ -188,7 +188,11 @@ async function cleanupResources() {
   recorderStream = null;
 
   if (audioContext) {
-    await audioContext.close();
+    try {
+      await audioContext.close();
+    } catch (err) {
+      console.warn("[LateMeet][offscreen] AudioContext close failed:", err);
+    }
     audioContext = null;
   }
 
