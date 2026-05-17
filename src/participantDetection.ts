@@ -1,18 +1,18 @@
 export const MAX_PARTICIPANT_NAME_LEN = 120;
 
 const EXCLUDED_PARTICIPANT_LABELS = new Set([
-  'Audio on',
-  'Camera off',
-  'Camera on',
-  'Meeting host',
-  'More options',
-  'Mute',
-  'Muted',
-  'Pin',
-  'Presentation',
-  'Unmute',
-  'Unpin',
-  'You'
+  "Audio on",
+  "Camera off",
+  "Camera on",
+  "Meeting host",
+  "More options",
+  "Mute",
+  "Muted",
+  "Pin",
+  "Presentation",
+  "Unmute",
+  "Unpin",
+  "You",
 ]);
 
 export interface ParticipantNameCandidate {
@@ -22,36 +22,36 @@ export interface ParticipantNameCandidate {
 }
 
 function cleanText(value: string): string {
-  return value.replace(/\s+/g, ' ').trim();
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function stripExcludedLabels(value: string): string {
   let cleaned = cleanText(value);
-  if (!cleaned) return '';
+  if (!cleaned) return "";
 
   for (const label of EXCLUDED_PARTICIPANT_LABELS) {
-    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`\\b${escaped}\\b`, 'gi');
-    cleaned = cleaned.replace(regex, ' ');
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(`\\b${escaped}\\b`, "gi");
+    cleaned = cleaned.replace(regex, " ");
   }
 
-  cleaned = cleaned.replace(/(^|\s)[-/]+(?=\s|$)/g, ' ');
+  cleaned = cleaned.replace(/(^|\s)[-/]+(?=\s|$)/g, " ");
 
   return cleanText(cleaned);
 }
 
 export function participantNameFromCandidate(candidate: ParticipantNameCandidate): string | null {
-  const selfName = cleanText(candidate.selfName || '');
-  const text = stripExcludedLabels(candidate.text || '');
-  const ariaLabel = cleanText(candidate.ariaLabel || '');
+  const selfName = cleanText(candidate.selfName || "");
+  const text = stripExcludedLabels(candidate.text || "");
+  const ariaLabel = cleanText(candidate.ariaLabel || "");
 
-  const participantAriaName = ariaLabel.startsWith('Participant:')
-    ? ariaLabel.replace(/^Participant:\s*/, '')
-    : '';
+  const participantAriaName = ariaLabel.startsWith("Participant:")
+    ? ariaLabel.replace(/^Participant:\s*/, "")
+    : "";
   const rawName = selfName || participantAriaName || text;
   const name = cleanText(rawName);
 
-  if (!name || name.length > MAX_PARTICIPANT_NAME_LEN || name.includes('…')) {
+  if (!name || name.length > MAX_PARTICIPANT_NAME_LEN || name.includes("…")) {
     return null;
   }
 
@@ -71,5 +71,5 @@ export function collectParticipantNames(candidates: ParticipantNameCandidate[]):
   }
 
   const participantNames = [...names];
-  return participantNames.length > 0 ? participantNames : ['You'];
+  return participantNames.length > 0 ? participantNames : ["You"];
 }
