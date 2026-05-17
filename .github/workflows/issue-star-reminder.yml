@@ -22,9 +22,10 @@ jobs:
             if (eventName === 'issues') {
               const issueNumber = context.issue.number;
               const commenter = context.payload.issue.user.login;
+              const owner = context.repo.owner;
               
-              // Skip if it's a bot
-              if (context.payload.issue.user.type === 'Bot') return;
+              // Skip if it's a bot or the repository owner
+              if (context.payload.issue.user.type === 'Bot' || commenter === owner) return;
 
               const body = `👋 Hi @${commenter}, thank you for opening this issue! Late-Meet is an open-source project and we appreciate your support.\n\n` +
                 `If you'd like to work on this issue, feel free to request assignment. Let us know if you have any questions or ideas! 🚀`;
@@ -38,9 +39,10 @@ jobs:
             } else if (eventName === 'issue_comment') {
               const commentBody = context.payload.comment.body.toLowerCase();
               const commenter = context.payload.comment.user.login;
+              const owner = context.repo.owner;
 
-              // Don't respond to bots
-              if (context.payload.comment.user.type === 'Bot') return;
+              // Don't respond to bots or the repository owner
+              if (context.payload.comment.user.type === 'Bot' || commenter === owner) return;
 
               // Check if commenter is requesting assignment
               const assignKeywords = [
