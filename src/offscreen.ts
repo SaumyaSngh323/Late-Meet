@@ -17,31 +17,39 @@ let isDrainingQueue = false;
 const CHUNK_MS = 10000;
 const VAD_SAMPLE_MS = 250;
 const RMS_THRESHOLD = 0.012;
+
 let isFlushInProgress = false;
-let voiceActivity = new VoiceActivityTracker({ rmsThreshold: RMS_THRESHOLD });
+let voiceActivity = new VoiceActivityTracker({
+  rmsThreshold: RMS_THRESHOLD,
+});
 
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
+
     const cleanup = () => {
       reader.onloadend = null;
       reader.onerror = null;
       reader.onabort = null;
     };
+
     reader.onloadend = () => {
       cleanup();
       const result = reader.result as string;
       const base64String = result.split(",")[1];
       resolve(base64String);
     };
+
     reader.onerror = () => {
       cleanup();
       reject(reader.error ?? new Error("FileReader failed to read blob"));
     };
+
     reader.onabort = () => {
       cleanup();
       reject(new Error("FileReader read was aborted"));
     };
+
     reader.readAsDataURL(blob);
   });
 }
@@ -69,6 +77,7 @@ function getCurrentRms(): number {
   analyserNode.getByteTimeDomainData(buffer);
 
   let sumSquares = 0;
+
   for (let i = 0; i < buffer.length; i += 1) {
     const normalized = (buffer[i] - 128) / 128;
     sumSquares += normalized * normalized;
@@ -88,6 +97,7 @@ async function flushAudioChunk() {
     if (!voiceActivity.consumeShouldFlush()) {
       return;
     }
+
     await drainPendingChunks();
 
     try {
@@ -102,6 +112,7 @@ async function flushAudioChunk() {
 
 async function postChunk(blob: Blob) {
   console.log("[LateMeet][offscreen] postChunk called, blob size:", blob?.size || 0);
+
   if (!isChunkViable(blob)) {
     console.warn("[LateMeet][offscreen] Chunk too small, skipping:", blob?.size ?? 0, "bytes");
     return;
@@ -134,10 +145,13 @@ async function postChunk(blob: Blob) {
 
 async function drainPendingChunks() {
   if (isDrainingQueue) return;
+
   isDrainingQueue = true;
+
   try {
     while (pendingChunks.length > 0) {
       const blob = pendingChunks.shift();
+
       if (blob) {
         await postChunk(blob);
       }
@@ -151,10 +165,39 @@ function stopTracks(stream: MediaStream | null) {
   stream?.getTracks().forEach((track) => track.stop());
 }
 
+async function cleanupResources() {
+  stopTracks(mediaStream);
+  stopTracks(microphoneStream);
+  stopTracks(recorderStream);
+
+  mediaStream = null;
+  microphoneStream = null;
+  recorderStream = null;
+
+  if (audioContext) {
+    try {
+      await audioContext.close();
+    } catch (err) {
+      console.warn("[LateMeet][offscreen] AudioContext close failed:", err);
+    }
+
+    audioContext = null;
+  }
+
+  mediaRecorder = null;
+  analyserNode = null;
+  audioSources = [];
+  pendingChunks = [];
+  isStopping = false;
+
+  voiceActivity = new VoiceActivityTracker({
+    rmsThreshold: RMS_THRESHOLD,
+  });
+}
 async function getTabAudioStream(streamId: string) {
   return navigator.mediaDevices.getUserMedia({
     audio: {
-      // @ts-ignore - chromeMediaSource is non-standard
+      // @ts-ignore
       mandatory: {
         chromeMediaSource: "tab",
         chromeMediaSourceId: streamId,
@@ -175,10 +218,8 @@ async function getMicrophoneStream() {
       video: false,
     });
   } catch (err) {
-    console.warn(
-      "[LateMeet][offscreen] Microphone capture unavailable; recording tab audio only:",
-      err,
-    );
+    console.warn("[LateMeet][offscreen] Microphone capture unavailable:", err);
+
     return null;
   }
 }
@@ -190,19 +231,17 @@ function connectSourceToRecorder(
   if (!audioContext || !analyserNode) return;
 
   const source = audioContext.createMediaStreamSource(stream);
+
   source.connect(destination);
   source.connect(analyserNode);
+
   audioSources.push(source);
 }
 
 async function startCapture(streamId: string, _tabId: number, includeMicrophone = true) {
   if (mediaRecorder && mediaRecorder.state === "recording") {
-    console.log(
-      "[LateMeet][offscreen] Capture already running. Mic active:",
-      Boolean(microphoneStream),
-      "| MIME:",
-      mediaRecorder.mimeType || "default",
-    );
+    console.log("[LateMeet][offscreen] Capture already running");
+
     return {
       microphoneActive: Boolean(microphoneStream),
     };
@@ -214,19 +253,38 @@ async function startCapture(streamId: string, _tabId: number, includeMicrophone 
     throw new Error("Failed to capture tab audio stream");
   }
 
+  mediaStream.getTracks().forEach((track) => {
+    track.onended = async () => {
+      console.warn("[LateMeet][offscreen] Media track ended unexpectedly");
+
+      if (isStopping) return;
+
+      try {
+        await stopCapture();
+      } catch (err) {
+        console.error("[LateMeet][offscreen] Cleanup after track end failed:", err);
+      }
+    };
+  });
+
   audioContext = new AudioContext();
+
   const destination = audioContext.createMediaStreamDestination();
+
   analyserNode = audioContext.createAnalyser();
   analyserNode.fftSize = 1024;
 
   const tabSource = audioContext.createMediaStreamSource(mediaStream);
+
   tabSource.connect(destination);
   tabSource.connect(analyserNode);
   tabSource.connect(audioContext.destination);
+
   audioSources.push(tabSource);
 
   if (includeMicrophone) {
     microphoneStream = await getMicrophoneStream();
+
     if (microphoneStream) {
       connectSourceToRecorder(microphoneStream, destination);
     }
@@ -235,6 +293,7 @@ async function startCapture(streamId: string, _tabId: number, includeMicrophone 
   recorderStream = destination.stream;
 
   const mimeType = pickSupportedMimeType();
+
   mediaRecorder = mimeType
     ? new MediaRecorder(recorderStream, { mimeType })
     : new MediaRecorder(recorderStream);
@@ -244,13 +303,25 @@ async function startCapture(streamId: string, _tabId: number, includeMicrophone 
       type: event.data?.type,
       size: event.data?.size,
     });
+
     if (event.data && event.data.size > 0) {
       pendingChunks.push(event.data);
     }
   });
 
+  mediaRecorder.addEventListener("error", async (err) => {
+    console.error("[LateMeet][offscreen] Recorder error:", err);
+
+    if (!isStopping) {
+      await stopCapture();
+    }
+  });
+
   mediaRecorder.start(CHUNK_MS);
-  voiceActivity = new VoiceActivityTracker({ rmsThreshold: RMS_THRESHOLD });
+
+  voiceActivity = new VoiceActivityTracker({
+    rmsThreshold: RMS_THRESHOLD,
+  });
 
   vadTimer = setInterval(() => {
     voiceActivity.observe(getCurrentRms());
@@ -259,6 +330,7 @@ async function startCapture(streamId: string, _tabId: number, includeMicrophone 
   chunkTimer = setInterval(async () => {
     try {
       if (isStopping) return;
+
       await flushAudioChunk();
       await drainPendingChunks();
     } catch (err) {
@@ -266,63 +338,66 @@ async function startCapture(streamId: string, _tabId: number, includeMicrophone 
     }
   }, CHUNK_MS);
 
-  console.log(
-    "[LateMeet][offscreen] Capture started. Mic active:",
-    Boolean(microphoneStream),
-    "| MIME:",
-    mimeType || "default",
-  );
-  return { microphoneActive: Boolean(microphoneStream) };
+  console.log("[LateMeet][offscreen] Capture started");
+
+  return {
+    microphoneActive: Boolean(microphoneStream),
+  };
 }
 
 async function stopCapture() {
-  if (chunkTimer) {
-    clearInterval(chunkTimer as any);
-    chunkTimer = null;
+  // Prevent concurrent cleanup execution
+  if (isStopping) {
+    return;
   }
-  if (vadTimer) {
-    clearInterval(vadTimer as any);
-    vadTimer = null;
-  }
+
   isStopping = true;
 
-  if (mediaRecorder && mediaRecorder.state === "recording") {
-    const recorder = mediaRecorder;
-    await new Promise<void>((resolve) => {
-      const timeout = setTimeout(resolve, 2000);
-      recorder.addEventListener("stop", () => resolve(), { once: true });
-      recorder.addEventListener("error", () => resolve(), { once: true });
-      recorder.stop();
-      recorder.addEventListener("stop", () => clearTimeout(timeout), { once: true });
-    });
+  try {
+    if (chunkTimer) {
+      clearInterval(chunkTimer);
+      chunkTimer = null;
+    }
+
+    if (vadTimer) {
+      clearInterval(vadTimer);
+      vadTimer = null;
+    }
+
+    if (mediaRecorder && mediaRecorder.state !== "inactive") {
+      const recorder = mediaRecorder;
+
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(resolve, 2000);
+
+        recorder.addEventListener("stop", () => resolve(), { once: true });
+
+        recorder.addEventListener("error", () => resolve(), { once: true });
+
+        try {
+          recorder.stop();
+        } catch (err) {
+          console.warn("[LateMeet][offscreen] Recorder stop failed:", err);
+          resolve();
+        }
+
+        recorder.addEventListener("stop", () => clearTimeout(timeout), { once: true });
+      });
+    }
+
+    await drainPendingChunks();
+
+    await cleanupResources();
+  } catch (err) {
+    console.error("[LateMeet][offscreen] stopCapture failed:", err);
+
+    await cleanupResources();
   }
-
-  await drainPendingChunks();
-
-  stopTracks(mediaStream);
-  stopTracks(microphoneStream);
-  stopTracks(recorderStream);
-  mediaStream = null;
-  microphoneStream = null;
-  recorderStream = null;
-
-  if (audioContext) {
-    await audioContext.close();
-    audioContext = null;
-  }
-
-  mediaRecorder = null;
-  analyserNode = null;
-  audioSources = [];
-  pendingChunks = [];
-  isStopping = false;
-  voiceActivity = new VoiceActivityTracker({ rmsThreshold: RMS_THRESHOLD });
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  // Only handle messages intended for the offscreen document
   if (!message?.type?.startsWith("OFFSCREEN_")) {
-    return false; // Not for us — let other listeners handle it
+    return false;
   }
 
   (async () => {
@@ -333,11 +408,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           message.tabId,
           message.includeMicrophone !== false,
         );
-        sendResponse({ success: true, ...captureInfo });
+
+        sendResponse({
+          success: true,
+          ...captureInfo,
+        });
       } catch (err) {
         console.error("[LateMeet][offscreen] Failed to start capture:", (err as Error).message);
-        sendResponse({ success: false, error: (err as Error).message || "Start capture failed" });
+
+        sendResponse({
+          success: false,
+          error: (err as Error).message || "Start capture failed",
+        });
       }
+
       return;
     }
 
@@ -345,13 +429,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       try {
         await stopCapture();
       } finally {
-        await chrome.runtime.sendMessage({ type: "OFFSCREEN_CAPTURE_STOPPED" });
+        await chrome.runtime.sendMessage({
+          type: "OFFSCREEN_CAPTURE_STOPPED",
+        });
       }
+
       sendResponse({ success: true });
+
       return;
     }
 
-    sendResponse({ success: false, error: "Unknown offscreen message type" });
+    sendResponse({
+      success: false,
+      error: "Unknown offscreen message type",
+    });
   })();
 
   return true;
