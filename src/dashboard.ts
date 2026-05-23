@@ -774,6 +774,10 @@ document.addEventListener("DOMContentLoaded", async () => {
                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" x2="12" y1="15" y2="3"></line></svg>
                 Export
               </button>
+              <button class="session-export-btn session-download-btn" data-session-id="${s.id}" title="Download as Markdown File">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" x2="12" y1="15" y2="3"></line></svg>
+                Download
+              </button>
               <button class="session-delete-btn" data-session-id="${s.id}" title="Delete session">
                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
                 Delete
@@ -785,11 +789,21 @@ document.addEventListener("DOMContentLoaded", async () => {
         .join("");
 
       // Wire up export buttons
-      container.querySelectorAll<HTMLButtonElement>(".session-export-btn").forEach((btn) => {
+      container
+        .querySelectorAll<HTMLButtonElement>(".session-export-btn:not(.session-download-btn)")
+        .forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const sessionId = btn.dataset.sessionId;
+            const session = sessions.find((s: State) => (s as any).id === sessionId);
+            if (session) exportSessionMarkdown(session);
+          });
+        });
+
+      container.querySelectorAll<HTMLButtonElement>(".session-download-btn").forEach((btn) => {
         btn.addEventListener("click", () => {
           const sessionId = btn.dataset.sessionId;
           const session = sessions.find((s: State) => (s as any).id === sessionId);
-          if (session) exportSessionMarkdown(session);
+          if (session) downloadSessionMarkdown(session);
         });
       });
 
@@ -808,7 +822,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
-  function exportSessionMarkdown(session: State) {
+  function generateSessionMarkdown(session: State): string {
     let md = `# Meeting Summary\n\n`;
     md += `**Date:** ${new Date((session as any).savedAt || session.startTime).toLocaleString()}\n`;
     md += `**Duration:** ${formatDuration(session.duration || 0)}\n`;
@@ -837,6 +851,11 @@ document.addEventListener("DOMContentLoaded", async () => {
         md += "\n";
       });
     }
+    return md;
+  }
+
+  function exportSessionMarkdown(session: State) {
+    const md = generateSessionMarkdown(session);
 
     navigator.clipboard
       .writeText(md)
@@ -849,6 +868,14 @@ document.addEventListener("DOMContentLoaded", async () => {
           "error",
         );
       });
+  }
+
+  function downloadSessionMarkdown(session: State) {
+    const md = generateSessionMarkdown(session);
+
+    const filename = `meeting-summary-${new Date((session as any).savedAt || session.startTime).toISOString().slice(0, 10)}.md`;
+    downloadFile(md, filename, "text/markdown");
+    showToast("Downloaded as .md file", "success");
   }
 
   // Load sessions on tab switch
