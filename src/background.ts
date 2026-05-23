@@ -648,7 +648,8 @@ async function persistSession() {
     // Check if the session ID already exists in savedSessions to prevent duplicate entries
     const sessionExists = sessions.some((s: any) => s.id === pendingSession.id);
     if (sessionExists) {
-      console.log("[LateMeet] Session already persisted, ignoring duplicate save.");
+      await chrome.storage.local.set({ pendingSession: null });
+      console.log("[LateMeet] Session already persisted, cleared pending session.");
       return;
     }
 
