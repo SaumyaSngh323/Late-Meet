@@ -316,13 +316,13 @@ initTheme();
 
   async function publishActiveSpeaker(name: string) {
     if (name === lastActiveSpeakerName) return;
-    lastActiveSpeakerName = name;
 
     try {
       await chrome.runtime.sendMessage({
         type: "ACTIVE_SPEAKER_CHANGED",
         name,
       });
+      lastActiveSpeakerName = name;
     } catch {
       // Service worker idle
     }
