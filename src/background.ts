@@ -17,6 +17,7 @@ const MIN_MEETING_DURATION_FOR_WELCOME = 10;
 
 import { State } from "./types";
 import { audioFileExtensionForMimeType, isChunkViable } from "./audioProcessing";
+import { getElevenLabsApiKey, getOpenAiApiKey } from "./utils/credentials";
 
 const state: State = {
   isActive: false,
@@ -154,13 +155,6 @@ async function broadcastStateUpdate() {
   }
 }
 
-async function getApiKey() {
-  const sessionResult = await chrome.storage.session.get("openai_api_key");
-  if (sessionResult.openai_api_key) return sessionResult.openai_api_key;
-  const localResult = await chrome.storage.local.get("openai_api_key");
-  return localResult.openai_api_key || null;
-}
-
 interface Settings {
   summarizationInterval?: number;
   aiModel?: string;
@@ -233,14 +227,7 @@ function getTranscriptionPrompt() {
 async function transcribeChunk(base64Audio: string, mimeType = "audio/webm", prompt = "") {
   // Use ElevenLabs API key if available, fallback to OpenAI if not?
   // No, the requirement is to use ElevenLabs.
-  let elevenlabsKey = await chrome.storage.session
-    .get("elevenlabs_api_key")
-    .then((r) => r.elevenlabs_api_key);
-  if (!elevenlabsKey) {
-    elevenlabsKey = await chrome.storage.local
-      .get("elevenlabs_api_key")
-      .then((r) => r.elevenlabs_api_key);
-  }
+  const elevenlabsKey = await getElevenLabsApiKey();
 
   const bytes = Uint8Array.from(atob(base64Audio), (c) => c.charCodeAt(0));
   const blob = new Blob([bytes], { type: mimeType });
@@ -299,7 +286,7 @@ async function transcribeChunk(base64Audio: string, mimeType = "audio/webm", pro
   }
 
   // Fallback to Whisper
-  const apiKey = await getApiKey();
+  const apiKey = await getOpenAiApiKey();
   if (!apiKey) return null;
 
   const normalizedMime = mimeType.split(";")[0].trim();
@@ -337,7 +324,7 @@ async function refineTranscription(rawText: string) {
   const words = rawText.trim().split(/\s+/);
   if (words.length < 3) return rawText;
 
-  const apiKey = await getApiKey();
+  const apiKey = await getOpenAiApiKey();
   if (!apiKey) return rawText;
 
   const systemPrompt = `You are an expert AI transcription editor. 
@@ -398,7 +385,7 @@ async function summarizeTranscriptIfNeeded() {
   const elapsed = Math.floor((Date.now() - lastSum) / 1000);
   if (lastSum > 0 && elapsed < intervalSeconds) return;
 
-  const apiKey = await getApiKey();
+  const apiKey = await getOpenAiApiKey();
   if (!apiKey) return;
 
   const transcriptWindow = state.transcript
@@ -569,7 +556,7 @@ async function generateLateJoinerMessage(joinerName: string) {
   const fallback = `Hi ${joinerName}, welcome to the meeting! We are currently discussing ${context.currentTopic || "project updates"}.`;
 
   try {
-    const apiKey = await getApiKey();
+    const apiKey = await getOpenAiApiKey();
     if (!apiKey) return fallback;
 
     const prompt = `A participant named ${safeJoinerName} joined late. Meeting duration: ${Math.round(context.duration / 60)} minutes. Current topic: ${sanitizePromptText(context.currentTopic || "General discussion")}. Recent topics: ${sanitizePromptText(JSON.stringify(context.topics || []))}. Decisions: ${sanitizePromptText(JSON.stringify(context.decisions || []))}. Write a short welcome message under 3 sentences. Output plain text only.`;
