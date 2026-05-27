@@ -308,7 +308,14 @@ async function broadcastStateUpdate() {
 
 async function getApiKey() {
   const result = await chrome.storage.session.get("openai_api_key");
-  return result.openai_api_key || null;
+  if (result.openai_api_key) return result.openai_api_key;
+
+  const localResult = await chrome.storage.local.get("openai_api_key");
+  if (localResult.openai_api_key) {
+    await chrome.storage.session.set({ openai_api_key: localResult.openai_api_key });
+    return localResult.openai_api_key;
+  }
+  return null;
 }
 
 interface Settings {
@@ -381,10 +388,18 @@ function getTranscriptionPrompt() {
 }
 
 async function transcribeChunk(base64Audio: string, mimeType = "audio/webm", prompt = "") {
-  // Single declaration — retrieved from session storage where ElevenLabs keys are stored.
-  const elevenlabsKey = await chrome.storage.session
+  // Single declaration — retrieved from session storage with local storage fallback.
+  let elevenlabsKey = await chrome.storage.session
     .get("elevenlabs_api_key")
     .then((r) => r.elevenlabs_api_key);
+
+  if (!elevenlabsKey) {
+    const localResult = await chrome.storage.local.get("elevenlabs_api_key");
+    if (localResult.elevenlabs_api_key) {
+      elevenlabsKey = localResult.elevenlabs_api_key;
+      await chrome.storage.session.set({ elevenlabs_api_key: elevenlabsKey });
+    }
+  }
 
   const bytes = Uint8Array.from(atob(base64Audio), (c) => c.charCodeAt(0));
   const blob = new Blob([bytes], { type: mimeType });

@@ -128,7 +128,7 @@ body {
 
 .form-input:focus,
 .form-select:focus {
-  border-color: var(--text-main);
+  border-color: hsl(var(--accent-color));
   background: var(--bg-element);
 }
 
@@ -195,7 +195,7 @@ body {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: var(--text-main);
+  background: hsl(var(--accent-color));
   cursor: pointer;
   box-shadow: 0 0 0 4px var(--border-main);
   transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
@@ -282,7 +282,7 @@ body {
 }
 
 .toggle-switch input:checked + .toggle-slider {
-  background: var(--text-main);
+  background: hsl(var(--accent-color));
 }
 
 .toggle-switch input:checked + .toggle-slider::before {
@@ -303,7 +303,7 @@ body {
   gap: 8px;
   width: 100%;
   padding: 14px;
-  background: var(--text-main);
+  background: hsl(var(--accent-color));
   color: var(--text-invert);
   border: none;
   border-radius: 8px;
@@ -371,6 +371,6 @@ body {
 .color-dot.active {
   box-shadow:
     0 0 0 2px var(--bg-app),
-    0 0 0 4px var(--text-main);
+    0 0 0 4px hsl(var(--accent-color));
   transform: scale(1.05);
 }

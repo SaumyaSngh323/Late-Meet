@@ -167,7 +167,7 @@ body::-webkit-scrollbar-thumb {
 .copilot-btn,
 .session-btn.save {
   padding: 14px;
-  background: var(--text-main);
+  background: hsl(var(--accent-color));
   color: var(--text-invert);
   border: none;
   border-radius: 8px;
@@ -228,7 +228,7 @@ body::-webkit-scrollbar-thumb {
 
 .logo-icon {
   font-size: 20px;
-  color: var(--text-main);
+  color: hsl(var(--accent-color));
   display: flex;
 }
 
@@ -253,7 +253,7 @@ body::-webkit-scrollbar-thumb {
 }
 
 .status-badge.active {
-  color: var(--text-main);
+  color: hsl(var(--accent-color));
 }
 .status-badge.inactive {
   color: var(--text-muted);
@@ -331,12 +331,12 @@ body::-webkit-scrollbar-thumb {
   margin-left: auto;
   font-size: 10px;
   font-weight: 500;
-  color: var(--text-muted);
+  color: hsl(var(--accent-color));
   background: var(--bg-card);
   padding: 4px 8px;
   border-radius: 6px;
   font-family: "JetBrains Mono", "Fira Code", monospace;
-  border: 1px solid var(--border-main);
+  border: 1px solid hsl(var(--accent-color));
 }
 
 .mini-copilot-btn {
@@ -392,7 +392,7 @@ body::-webkit-scrollbar-thumb {
   font-size: 9px;
   font-weight: 700;
   color: var(--text-invert);
-  background: var(--text-main);
+  background: hsl(var(--accent-color));
   padding: 3px 8px;
   border-radius: 4px;
   letter-spacing: 0.5px;
@@ -505,8 +505,8 @@ body::-webkit-scrollbar-thumb {
 }
 
 .topic-dot.active {
-  background: var(--text-main);
-  box-shadow: 0 0 6px var(--border-element);
+  background: hsl(var(--accent-color));
+  box-shadow: 0 0 6px hsla(var(--accent-color), 0.4);
 }
 .topic-dot.completed {
   background: var(--text-muted);
@@ -525,7 +525,7 @@ body::-webkit-scrollbar-thumb {
 
 .topic-status.active {
   color: var(--text-invert);
-  background: var(--text-main);
+  background: hsl(var(--accent-color));
 }
 
 .topic-status.completed {
@@ -571,11 +571,11 @@ body::-webkit-scrollbar-thumb {
 
 .copilot-btn.active {
   background: var(--bg-surface);
-  border: 1px solid var(--border-sub);
-  color: var(--text-main);
+  border: 1px solid hsl(var(--accent-color));
+  color: hsl(var(--accent-color));
 }
 .copilot-btn.active .copilot-btn-icon {
-  color: var(--text-sub);
+  color: hsl(var(--accent-color));
 }
 
 /* Loading state */
@@ -704,9 +704,9 @@ body::-webkit-scrollbar-thumb {
 }
 
 .platform-tag.active {
-  background: var(--text-main);
+  background: hsl(var(--accent-color));
   color: var(--text-invert);
-  border-color: var(--text-main);
+  border-color: hsl(var(--accent-color));
 }
 
 /* ——— Session Ended Modal ——— */
