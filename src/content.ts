@@ -207,46 +207,78 @@ initTheme();
   }
 
   function upsertBriefOverlay(briefContent: string, targetName?: string) {
-    const overlayId = "late-meet-brief-overlay";
+    const overlayId = "mc-brief-overlay";
     let overlay = document.getElementById(overlayId);
+
+    const closeOverlay = () => {
+      if (!overlay) return;
+      overlay.classList.remove("mc-visible");
+      window.setTimeout(() => {
+        overlay?.remove();
+        overlay = null;
+      }, 550);
+    };
 
     if (!overlay) {
       overlay = document.createElement("div");
       overlay.id = overlayId;
-      Object.assign(overlay.style, {
-        position: "fixed",
-        right: "16px",
-        bottom: "16px",
-        maxWidth: "360px",
-        zIndex: "2147483647",
-        background: "rgba(0,0,0,0.9)",
-        color: "#fff",
-        border: "1px solid rgba(255,255,255,0.2)",
-        borderRadius: "12px",
-        padding: "12px",
-        fontFamily: "Inter, Arial, sans-serif",
-        boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+
+      const card = document.createElement("div");
+      card.className = "mc-brief-card";
+
+      const header = document.createElement("div");
+      header.className = "mc-brief-header";
+
+      const icon = document.createElement("div");
+      icon.className = "mc-brief-icon";
+      icon.textContent = "🧠";
+
+      const title = document.createElement("div");
+      title.className = "mc-brief-title";
+      title.textContent = targetName ? `Brief for ${targetName}` : "Meeting brief";
+
+      const closeBtn = document.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.className = "mc-brief-close";
+      closeBtn.setAttribute("aria-label", "Close brief");
+      closeBtn.textContent = "✕";
+      closeBtn.addEventListener("click", closeOverlay);
+
+      header.append(icon, title, closeBtn);
+
+      const greeting = document.createElement("div");
+      greeting.className = "mc-brief-greeting";
+      greeting.textContent = targetName ? `Welcome, ${targetName}` : "Welcome back";
+
+      const text = document.createElement("div");
+      text.className = "mc-brief-text";
+      text.textContent = String(briefContent || "No brief content available.");
+
+      const footer = document.createElement("div");
+      footer.className = "mc-brief-footer";
+      footer.textContent = "Late Meet — private brief (only visible to you)";
+
+      card.append(header, greeting, text, footer);
+      overlay.appendChild(card);
+
+      overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) closeOverlay();
       });
+
       document.body.appendChild(overlay);
+      requestAnimationFrame(() => overlay?.classList.add("mc-visible"));
+    } else {
+      const title = overlay.querySelector(".mc-brief-title");
+      if (title) title.textContent = targetName ? `Brief for ${targetName}` : "Meeting brief";
+
+      const greeting = overlay.querySelector(".mc-brief-greeting");
+      if (greeting) greeting.textContent = targetName ? `Welcome, ${targetName}` : "Welcome back";
+
+      const text = overlay.querySelector(".mc-brief-text");
+      if (text) text.textContent = String(briefContent || "No brief content available.");
+
+      overlay.classList.add("mc-visible");
     }
-
-    const title = document.createElement("div");
-    title.style.fontWeight = "700";
-    title.style.marginBottom = "6px";
-    title.textContent = targetName ? `Brief for ${targetName}` : "Meeting brief";
-
-    const body = document.createElement("div");
-    body.style.fontSize = "13px";
-    body.style.lineHeight = "1.4";
-    body.textContent = String(briefContent || "No brief content available.");
-
-    overlay.replaceChildren(title, body);
-
-    setTimeout(() => {
-      if (overlay && overlay.parentNode) {
-        overlay.parentNode.removeChild(overlay);
-      }
-    }, 8000);
   }
 
   async function collectParticipants(): Promise<{
@@ -404,65 +436,50 @@ initTheme();
   }
 
   function injectFloatingButton() {
-    const existing = document.getElementById("late-meet-floating-btn");
+    const existing = document.getElementById("mc-float-btn");
     if (existing) return;
 
     const btn = document.createElement("button");
-    btn.id = "late-meet-floating-btn";
-    btn.innerHTML = `
-      <span class="late-meet-btn-icon">🎙️</span>
-      <span class="late-meet-btn-text">Start Copilot</span>
-    `;
+    btn.id = "mc-float-btn";
+    btn.type = "button";
+    btn.setAttribute("aria-label", "Start Late Meet Copilot");
 
-    Object.assign(btn.style, {
-      position: "fixed",
-      left: "24px",
-      bottom: "80px",
-      zIndex: "10000",
-      padding: "12px 20px",
-      background: "#000",
-      color: "#fff",
-      border: "1px solid #333",
-      borderRadius: "30px",
-      cursor: "pointer",
-      display: "flex",
-      alignItems: "center",
-      gap: "8px",
-      fontFamily: "Inter, sans-serif",
-      fontSize: "14px",
-      fontWeight: "600",
-      boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
-      transition: "all 0.2s ease",
-    });
+    const inner = document.createElement("div");
+    inner.className = "mc-float-btn-inner";
 
-    btn.addEventListener("mouseover", () => {
-      btn.style.transform = "translateY(-2px)";
-      btn.style.borderColor = "#555";
-    });
+    const pulse = document.createElement("div");
+    pulse.className = "mc-float-pulse";
 
-    btn.addEventListener("mouseout", () => {
-      btn.style.transform = "translateY(0)";
-      btn.style.borderColor = "#333";
-    });
+    const icon = document.createElement("span");
+    icon.className = "mc-float-icon";
+    icon.textContent = "🎙️";
+
+    inner.append(pulse, icon);
+
+    const label = document.createElement("span");
+    label.className = "mc-float-label";
+    label.textContent = "Start Copilot";
+
+    btn.append(inner, label);
 
     btn.addEventListener("click", async () => {
       btn.disabled = true;
-      const textSpan = btn.querySelector(".late-meet-btn-text");
-      if (textSpan) textSpan.textContent = "Opening Copilot...";
+      label.textContent = "Opening Copilot...";
 
       try {
         // Open the side panel (dashboard) where tabCapture can be properly initiated
         // with user gesture context. Content scripts cannot use chrome.tabCapture.
         await chrome.runtime.sendMessage({ type: "OPEN_SIDE_PANEL" });
-        btn.style.display = "none";
+        btn.remove();
       } catch (err) {
         console.error(`${COPILOT_PREFIX} Error opening side panel:`, err);
         btn.disabled = false;
-        if (textSpan) textSpan.textContent = "Start Copilot";
+        label.textContent = "Start Copilot";
       }
     });
 
     document.body.appendChild(btn);
+    requestAnimationFrame(() => btn.classList.add("mc-visible"));
   }
 
   const observer = new MutationObserver(() => {
@@ -486,15 +503,16 @@ initTheme();
     }
 
     if (message?.type === "STATE_UPDATE") {
-      const btn = document.getElementById("late-meet-floating-btn") as HTMLButtonElement | null;
+      const btn = document.getElementById("mc-float-btn") as HTMLButtonElement | null;
       const isActive = message.state?.isActive;
       if (btn && isActive) {
-        btn.style.display = "none";
+        btn.remove();
+      } else if (!btn && !isActive) {
+        injectFloatingButton();
       } else if (btn && !isActive) {
-        btn.style.display = "flex";
         btn.disabled = false;
-        const textSpan = btn.querySelector(".late-meet-btn-text");
-        if (textSpan) textSpan.textContent = "Start Copilot";
+        const label = btn.querySelector(".mc-float-label");
+        if (label) label.textContent = "Start Copilot";
       }
       sendResponse({ success: true });
       return false;

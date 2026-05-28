@@ -207,6 +207,7 @@
   font-size: 14px;
   color: var(--text-sub);
   margin-bottom: 20px;
+  white-space: pre-wrap;
 }
 
 .mc-brief-section {

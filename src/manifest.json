@@ -30,11 +30,5 @@
   },
   "icons": {
     "128": "src/icons/icon128.png"
-  },
-  "web_accessible_resources": [
-    {
-      "resources": ["src/content.css"],
-      "matches": ["https://meet.google.com/*"]
-    }
-  ]
+  }
 }
